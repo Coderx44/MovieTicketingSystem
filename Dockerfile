@@ -22,7 +22,7 @@ WORKDIR /
 
 COPY --from=build /movieticket-build-file /movieticket-build-file
 
-COPY ./migrations/* /akshat/migrations/
+COPY migrations/* /migrations/
 
 EXPOSE 3000
 
