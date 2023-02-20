@@ -73,7 +73,9 @@ const (
 	INNER JOIN multiplexes mu ON sh.multiplex_id = mu.multiplex_id
 	WHERE sh.show_id = $1;
 	`
-	getUpcomingMovies = `SELECT * FROM MOVIES WHERE release_date > $1`
+	getUpcomingMovies     = `SELECT * FROM MOVIES WHERE release_date > $1`
+	getBookings           = `SELECT * from bookings where email=$1`
+	getSeatsByIDandShowID = `SELECT COUNT(*) FROM seats WHERE show_id = $1 AND seat_id = ANY($2)`
 )
 
 type User struct {
@@ -139,10 +141,10 @@ type Seat struct {
 
 type Booking struct {
 	Booking_id int    `json:"booking_id" db:"booking_id"`
-	Price      int    `json:"price" db:"price"`
+	Price      int    `json:"price,omitempty" db:"price"`
 	Status     string `json:"status" db:"status"`
 	Email      int    `json:"Email" db:"email"`
-	Seat_id    int    `json:"seat_id" db:"seat_id"`
+	Seats      []int  `json:"seats" db:"seat_id"`
 	Show_id    int    `json:"show_id" db:"show_id"`
 }
 type MultiplexShow struct {
@@ -362,7 +364,7 @@ func (s *store) GetAllMultiplexesByLocationID(ctx context.Context, location_id i
 	rows, err = s.db.Query(getAllMultiplexeByLocationID, location_id)
 
 	if err == sql.ErrNoRows {
-		return []Multiplexe{{}}, errors.New("No multiplexes found.")
+		return []Multiplexe{{}}, errors.New("no multiplexes found")
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -483,7 +485,7 @@ func (s *store) GetAllShowsByDateAndMultiplexId(ctx context.Context, date time.T
 
 	err = rows.Err()
 	if err != nil && err == sql.ErrNoRows {
-		return m, errors.New("No shows found.")
+		return m, errors.New("no shows found")
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -504,7 +506,7 @@ func (s *store) GetAllShowsByMovieAndDate(ctx context.Context, title string, cit
 	rows, err = s.db.Query(GetAllShowsByMovieAndDate, city, title, date)
 
 	if err == sql.ErrNoRows {
-		return m, errors.New("No shows found.")
+		return m, errors.New("no shows found")
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -528,7 +530,7 @@ func (s *store) GetSeatsByShowID(ctx context.Context, id int) (seats []Seats, er
 
 	err = rows.Err()
 	if err != nil && err == sql.ErrNoRows {
-		return seats, errors.New("No seats found.")
+		return seats, errors.New("no seats found")
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -664,7 +666,7 @@ func (s *store) GetUpcomingMovies(ctx context.Context, date string) (m []Movie, 
 
 	// err = rows.Err()
 	if err != nil && err == sql.ErrNoRows {
-		return []Movie{{}}, errors.New("No movies available")
+		return []Movie{{}}, errors.New("no movies available")
 	}
 	defer rows.Close()
 	var movie Movie
@@ -704,5 +706,38 @@ func (s *store) DeleteByBookingByID(ctx context.Context, id int) (err error) {
 	}
 
 	return nil
+
+}
+
+func (s *store) GetBookings(ctx context.Context, email string) (b []Booking, err error) {
+
+	rows, err := s.db.Query(getBookings, email)
+	var bookings []Booking
+	if err == sql.ErrNoRows {
+		return []Booking{}, errors.New("no bookings")
+	}
+
+	defer rows.Close()
+	var booking Booking
+	for rows.Next() {
+		rows.Scan(&booking.Booking_id, &booking.Status, &booking.Show_id, &booking.Email, &booking.Seats)
+		if err != nil {
+			return
+		}
+		bookings = append(bookings, booking)
+
+	}
+	return bookings, nil
+
+}
+
+func (s *store) GetSeatsByIDandShowID(ctx context.Context, seat_id []int, show_id int) (n int, err error) {
+
+	row := s.db.QueryRow(getSeatsByIDandShowID, show_id, pq.Array(seat_id))
+	if row.Err() == sql.ErrNoRows {
+		return 0, err
+	}
+	row.Scan(&n)
+	return n, nil
 
 }

@@ -59,6 +59,16 @@ func ValidateJWT(next http.HandlerFunc, role string) http.HandlerFunc {
 	})
 }
 
+func ValidateSeats(b *bookingService, ctx context.Context, seat_id []int, show_id int) bool {
+
+	n, err := b.store.GetSeatsByIDandShowID(ctx, seat_id, show_id)
+	if err != nil || n != len(seat_id) {
+		return false
+	}
+	return true
+
+}
+
 // func ValidateJWT(tokenString string) (claims *Claims, err error) {
 // 	claims = &Claims{}
 // 	log.Println(tokenString)

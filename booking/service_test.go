@@ -33,7 +33,7 @@ func (suite *BookingServiceTestSuite) TearDownTest() {
 	t := suite.T()
 	suite.storer.AssertExpectations(t)
 }
-func TestHandlerTestSuite(t *testing.T) {
+func TestBookingServiceTestSuite(t *testing.T) {
 	suite.Run(t, new(BookingServiceTestSuite))
 }
 
@@ -274,6 +274,21 @@ func (suite *BookingServiceTestSuite) TestGetAllMultiplexesByCity() {
 
 			},
 		},
+		{
+			name: "GetAllMultiplexesByCity Success (No multiplexes)",
+			args: args{
+				ctx:         context.TODO(),
+				city:        "Noida",
+				location_id: 3,
+			},
+			wantErr: errors.New("no multiplexes found"),
+			m:       []NewMultiplex{{}},
+			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetLocationIdByCity", a.ctx, a.city).Return(db.Location{Location_id: 3}, nil).Once()
+				s.On("GetAllMultiplexesByLocationID", a.ctx, a.location_id).Return([]db.Multiplexe{{}}, errors.New("no multiplexes found")).Once()
+
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -452,6 +467,7 @@ func (suite *BookingServiceTestSuite) TestAddBookingsBySeatId() {
 			wantErr: nil,
 			invoice: Invoice{},
 			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetSeatsByIDandShowID", a.ctx, a.seats, a.show_id).Return(0, nil).Once()
 				s.On("CheckAvailability", a.ctx, a.seats).Return(true, nil).Once()
 				s.On("GetSeatsByID", a.ctx, a.seats).Return([]db.Seats{{}}, nil).Once()
 				s.On("AddBookingsBySeatId", a.ctx, a.seats, a.email, a.show_id, a.seat_num).Return(nil).Once()
@@ -470,6 +486,7 @@ func (suite *BookingServiceTestSuite) TestAddBookingsBySeatId() {
 			wantErr: errors.New("Seats not available"),
 			invoice: Invoice{},
 			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetSeatsByIDandShowID", a.ctx, a.seats, a.show_id).Return(2, nil).Once()
 				s.On("CheckAvailability", a.ctx, a.seats).Return(false, sql.ErrNoRows).Once()
 			},
 		},
@@ -485,6 +502,7 @@ func (suite *BookingServiceTestSuite) TestAddBookingsBySeatId() {
 			wantErr: errors.New("Err fetching seats"),
 			invoice: Invoice{},
 			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetSeatsByIDandShowID", a.ctx, a.seats, a.show_id).Return(2, nil).Once()
 				s.On("CheckAvailability", a.ctx, a.seats).Return(true, nil).Once()
 				s.On("GetSeatsByID", a.ctx, a.seats).Return([]db.Seats{{}}, errors.New("Err fetching seats")).Once()
 			},
@@ -501,10 +519,27 @@ func (suite *BookingServiceTestSuite) TestAddBookingsBySeatId() {
 			wantErr: errors.New("err: cannot generate invoice"),
 			invoice: Invoice{},
 			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetSeatsByIDandShowID", a.ctx, a.seats, a.show_id).Return(0, nil).Once()
 				s.On("CheckAvailability", a.ctx, a.seats).Return(true, nil).Once()
 				s.On("GetSeatsByID", a.ctx, a.seats).Return([]db.Seats{{}}, nil).Once()
 				s.On("AddBookingsBySeatId", a.ctx, a.seats, a.email, a.show_id, a.seat_num).Return(nil).Once()
 				s.On("GetInvoiceDetails", a.ctx, a.show_id).Return(db.Invoice{}, errors.New("Err fetching invoice details")).Once()
+			},
+		},
+		{
+			name: "Invalid seats",
+			args: args{
+				ctx:      context.TODO(),
+				seats:    []int{180, 170},
+				email:    "test@test.com",
+				show_id:  1,
+				seat_num: []int{},
+			},
+			wantErr: errors.New("invalid seats"),
+			invoice: Invoice{},
+			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetSeatsByIDandShowID", a.ctx, a.seats, a.show_id).Return(0, errors.New("invalid seats")).Once()
+
 			},
 		},
 	}
@@ -512,7 +547,7 @@ func (suite *BookingServiceTestSuite) TestAddBookingsBySeatId() {
 	for _, tt := range tests {
 		suite.Run(tt.name, func() {
 			tt.prepare(tt.args, suite.storer)
-			invoice, err := suite.service.AddBookingsBySeatId(tt.args.ctx, tt.args.seats, tt.args.email)
+			invoice, err := suite.service.AddBookingsBySeatId(tt.args.ctx, tt.args.seats, tt.args.email, tt.args.show_id)
 			if tt.wantErr != nil {
 				assert.EqualError(t, err, tt.wantErr.Error())
 			} else {
@@ -1227,6 +1262,65 @@ func (suite *BookingServiceTestSuite) TestGetAllShowsByDateAndMultiplexId() {
 				require.ErrorIs(t, err, tt.wantErr)
 			}
 			suite.IsType(tt.shows, shows)
+		})
+	}
+}
+
+func (suite *BookingServiceTestSuite) TestGetAllBookings() {
+	t := suite.T()
+
+	type args struct {
+		ctx   context.Context
+		s     *mocks.Storer
+		email string
+	}
+
+	tests := []struct {
+		name     string
+		args     args
+		wantErr  error
+		bookings []db.Booking
+		prepare  func(a args, s *mocks.Storer)
+	}{
+		{
+			name: "Success",
+			args: args{
+				ctx:   context.TODO(),
+				s:     suite.storer,
+				email: "test@test.com",
+			},
+			wantErr:  nil,
+			bookings: []db.Booking{{}},
+			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetBookings", a.ctx, a.email).Return([]db.Booking{}, nil).Once()
+			},
+		},
+		{
+			name: "Failure",
+			args: args{
+				ctx:   context.TODO(),
+				s:     suite.storer,
+				email: "test1@test.com",
+			},
+			wantErr:  errors.New("no bookings"),
+			bookings: []db.Booking{{}},
+			prepare: func(a args, s *mocks.Storer) {
+				s.On("GetBookings", a.ctx, a.email).Return([]db.Booking{}, errors.New("no bookings")).Once()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.prepare(tt.args, suite.storer)
+			dbBookings, err := suite.service.GetAllBookings(tt.args.ctx, tt.args.email)
+			if tt.wantErr != nil {
+				assert.EqualError(t, err, tt.wantErr.Error())
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+			suite.IsType(tt.bookings, dbBookings)
+
 		})
 	}
 }

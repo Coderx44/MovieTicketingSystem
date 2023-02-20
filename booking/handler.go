@@ -13,7 +13,6 @@ import (
 
 	"github.com/Coderx44/MovieTicketingPortal/app"
 	"github.com/gorilla/mux"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func PingHandler(w http.ResponseWriter, r *http.Request) {
@@ -29,8 +28,8 @@ func CreateNewUser(s Service) http.HandlerFunc {
 		var newUser NewUser
 		err := json.NewDecoder(r.Body).Decode(&newUser)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Internal Server error"))
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid parameters"))
 			return
 		}
 
@@ -53,18 +52,20 @@ func CreateNewUser(s Service) http.HandlerFunc {
 			return
 		}
 
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newUser.Password), bcrypt.DefaultCost)
-		if err != nil {
-			panic(err)
-		}
+		// hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newUser.Password), bcrypt.DefaultCost)
+		// if err != nil {
+		// 	w.WriteHeader(http.StatusInternalServerError)
+		// 	w.Write([]byte("Internal server error"))
+		// 	return
+		// }
 
-		newUser.Password = string(hashedPassword)
+		newUser.Password = string(newUser.Password)
 		newUser.Role = role
 		newResp, err := s.CreateNewUser(r.Context(), newUser)
 
 		if err != nil {
 			if err.Error() == "account exists for the given email" {
-				w.WriteHeader(http.StatusBadRequest)
+				w.WriteHeader(http.StatusOK)
 				w.Write([]byte("Err: User already exits for given email"))
 				return
 			}
@@ -96,7 +97,7 @@ func Login(s Service) http.HandlerFunc {
 			json.NewEncoder(w).Encode(err)
 			return
 		}
-
+		//Create function for checking
 		if authUser.Email == "" || authUser.Password == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("Err: Email address and password must be provided"))
@@ -195,7 +196,7 @@ func AddScreen(s Service) http.HandlerFunc {
 			w.Write([]byte("Provide the required parameters"))
 			return
 		}
-		log.Println("newsnn", newSn)
+		// log.Println("newsnn", newSn)
 		screen_id, err := s.AddScreen(r.Context(), newSn)
 
 		if err != nil {
@@ -290,8 +291,13 @@ func GetAllMultiplexesByCity(s Service) http.HandlerFunc {
 		}
 
 		multiplexes, err := s.GetAllMultiplexesByCity(r.Context(), city)
+		if err == errors.New("no multiplexes found") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(err.Error()))
+			return
+		}
 		if err != nil {
-			log.Println(err)
+			// log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Err: Internal Server Error - Failed to fetch multiplexes"))
 			return
@@ -317,8 +323,13 @@ func GetAllShowsByDateAndMultiplexId(s Service) http.HandlerFunc {
 			return
 		}
 		resp, err := s.GetAllShowsByDateAndMultiplexId(r.Context(), date, multiplex_id)
+		if err == errors.New("no shows found") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(err.Error()))
+			return
+		}
 		if err != nil {
-			log.Println(err)
+			// log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Err: Internal Server Error - Failed to fetch all shows"))
 			return
@@ -341,12 +352,23 @@ func GetAllShowsByMovieAndDate(s Service) http.HandlerFunc {
 			return
 		}
 		resp, err := s.GetAllShowsByMovieAndDate(r.Context(), date, title, city)
+		if err == errors.New("no shows found") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(err.Error()))
+			return
+		}
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Err: Internal Server Error - Failed to fetch all shows"))
 			return
 		}
+		if len(resp) == 0 {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode("No shows found")
+			return
+		}
+
 		json.NewEncoder(w).Encode(resp)
 	})
 }
@@ -363,6 +385,11 @@ func GetAllSeatsByShowID(s Service) http.HandlerFunc {
 		show_id, _ := strconv.Atoi(s_id)
 
 		resp, err := s.GetAllSeatsByShowID(r.Context(), show_id)
+		if err == errors.New("no seats found") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(err.Error()))
+			return
+		}
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -385,8 +412,9 @@ func BookSeats(s Service) http.HandlerFunc {
 
 		json.NewDecoder(r.Body).Decode(&seats)
 		log.Println(seats)
-		invoice, err := s.AddBookingsBySeatId(r.Context(), seats["seats"], claim.Email)
-		if err != nil && err.Error() == "Seats not available" {
+
+		invoice, err := s.AddBookingsBySeatId(r.Context(), seats["seats"], claim.Email, seats["show_id"][0])
+		if err != nil && err.Error() == "Seats not available" || err.Error() == "invalid seats" {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
@@ -406,6 +434,11 @@ func GetUpcomingMovies(s Service) http.HandlerFunc {
 		rdate := currentDate.Format("2006-01-02")
 		log.Println(len(rdate), rdate)
 		movies, err := s.GetUpcomingMovies(r.Context(), rdate)
+		if err == errors.New("no movies available") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(err.Error()))
+			return
+		}
 		if err != nil {
 			// log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -463,5 +496,29 @@ func CancelBooking(s Service) http.HandlerFunc {
 			return
 		}
 		json.NewEncoder(w).Encode("seats cancelled successfully.")
+	})
+}
+
+func GetBookings(s Service) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		claims := r.Context().Value("token")
+
+		claim := claims.(*Claims)
+
+		bookings, err := s.GetAllBookings(r.Context(), claim.Email)
+		if err == errors.New("no bookings") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(err.Error()))
+			return
+		}
+
+		json.NewEncoder(w).Encode(bookings)
+
 	})
 }

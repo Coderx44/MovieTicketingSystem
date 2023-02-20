@@ -38,6 +38,8 @@ type Storer interface {
 	GetInvoiceDetails(ctx context.Context, show_id int) (invoice Invoice, err error)
 	GetUpcomingMovies(ctx context.Context, date string) (m []Movie, err error)
 	DeleteByBookingByID(ctx context.Context, id int) (err error)
+	GetBookings(ctx context.Context, email string) (b []Booking, err error)
+	GetSeatsByIDandShowID(ctx context.Context, seat_id []int, show_id int) (int, error)
 }
 
 type store struct {

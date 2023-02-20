@@ -28,10 +28,11 @@ type Service interface {
 	GetAllShowsByDateAndMultiplexId(ctx context.Context, date string, multiplex_id int) (map[string][]MultiplexShow, error)
 	GetAllShowsByMovieAndDate(ctx context.Context, date string, title string, city string) (map[string][]MultiplexShow, error)
 	GetAllSeatsByShowID(ctx context.Context, show_id int) (map[int][]Seats, error)
-	AddBookingsBySeatId(ctx context.Context, seats []int, email string) (invoice Invoice, err error)
+	AddBookingsBySeatId(ctx context.Context, seats []int, email string, show_id int) (invoice Invoice, err error)
 	GetUpcomingMovies(ctx context.Context, date string) (m []NewMovie, err error)
 	GetMovieByTitle(ctx context.Context, title string) (m NewMovie, err error)
 	CancelBooking(ctx context.Context, id int) (err error)
+	GetAllBookings(ctx context.Context, email string) ([]db.Booking, error)
 }
 
 type bookingService struct {
@@ -258,6 +259,9 @@ func (b *bookingService) GetAllMultiplexesByCity(ctx context.Context, city strin
 	}
 
 	multiplexes, err := b.store.GetAllMultiplexesByLocationID(ctx, location.Location_id)
+	if err == errors.New("no multiplexes found") {
+		return
+	}
 	if err != nil {
 		// b.logger.Errorf("Err: Fetching All multiplexes: %v", err.Error())
 		err = errors.New("failed to get multiplexes")
@@ -296,7 +300,7 @@ func (b *bookingService) GetAllShowsByDateAndMultiplexId(ctx context.Context, da
 	}
 
 	allShows, err := b.store.GetAllShowsByDateAndMultiplexId(ctx, cDate, multiplex_id)
-	if err != nil && err.Error() == "No shows found." {
+	if err != nil && err.Error() == "no shows found" {
 		// b.logger.Errorf("Err: Fetching All shows: %v", err.Error())
 		return shows, err
 	}
@@ -320,6 +324,9 @@ func (b *bookingService) GetAllShowsByMovieAndDate(ctx context.Context, date str
 	}
 
 	allShows, err := b.store.GetAllShowsByMovieAndDate(ctx, title, city, cDate)
+	if err == errors.New("no shows found") {
+		return shows, err
+	}
 	if err != nil {
 		// b.logger.Errorf("Err: Fetching All shows: %v", err.Error())
 		return shows, err
@@ -338,6 +345,9 @@ func (b *bookingService) GetAllSeatsByShowID(ctx context.Context, show_id int) (
 	seats := make(map[int][]Seats)
 
 	allSeats, err := b.store.GetSeatsByShowID(ctx, show_id)
+	if err == errors.New("no seats found") {
+		return seats, err
+	}
 
 	if err != nil {
 		// b.logger.Errorf("Err: Fetching Seats: %v", err.Error())
@@ -357,9 +367,12 @@ func createInvoice(b *bookingService, ctx context.Context, show_id int) (invoice
 	return Invoice(invoiceDb), err
 }
 
-func (b *bookingService) AddBookingsBySeatId(ctx context.Context, seats []int, email string) (invoice Invoice, err error) {
+func (b *bookingService) AddBookingsBySeatId(ctx context.Context, seats []int, email string, show_id int) (invoice Invoice, err error) {
 
 	log.Println("in service", seats)
+	if !ValidateSeats(b, ctx, seats, show_id) {
+		return Invoice{}, errors.New("invalid seats")
+	}
 	available, err := b.store.CheckAvailability(ctx, seats)
 	if err == sql.ErrNoRows {
 		err = errors.New("Seats not available")
@@ -373,7 +386,7 @@ func (b *bookingService) AddBookingsBySeatId(ctx context.Context, seats []int, e
 	if err != nil {
 		return
 	}
-	show_id := seat[0].Show_id
+	// show_id := seat[0].Show_id
 	var seat_num []int
 	for _, value := range seat {
 		seat_num = append(seat_num, value.Seat_number)
@@ -427,4 +440,15 @@ func (b *bookingService) CancelBooking(ctx context.Context, id int) (err error) 
 		return
 	}
 	return
+}
+
+func (b *bookingService) GetAllBookings(ctx context.Context, email string) ([]db.Booking, error) {
+
+	bookings, err := b.store.GetBookings(ctx, email)
+
+	if err != nil {
+		return []db.Booking{}, err
+	}
+
+	return bookings, nil
 }
